@@ -1,16 +1,30 @@
 #include <stdint.h>
-#include "desktop.h"
-#include "../kernel/console.h"
-static int mouse_x = 512;
-static int mouse_y = 384;
-void desktop_init(void) {
-    console_write("\nNeoOS 26 Desktop\n");
-    console_write("-----------------\n");
-    console_write("NeoOS   File   Edit   View                 Wi-Fi  Sound  Battery\n\n");
-    console_write("                       Desktop\n\n");
-    console_write("      [Terminal] [Explorer] [Settings] [Device Manager]\n\n");
-    console_write("                    [  Dock  ]\n");
-}
-void desktop_render(void) {}
-void desktop_mouse_move(int dx, int dy) { mouse_x += dx; mouse_y += dy; if(mouse_x<0)mouse_x=0; if(mouse_y<0)mouse_y=0; if(mouse_x>1023)mouse_x=1023; if(mouse_y>767)mouse_y=767; }
-void desktop_mouse_click(uint8_t button) { (void)button; }
+#include "../kernel/rtc.h"
+
+typedef struct{volatile uint8_t*addr;uint32_t pitch,width,height;uint8_t bpp,type;int ready;} FB;
+static FB fb; static int mx=512,my=384,prev=0,start=0,active=0,drag=-1,dx0,dy0;
+static int openw[4]={1,0,0,0}; static int wx[4]={180,230,280,330},wy[4]={110,145,180,215};
+static const char*title[4]={"TERMINAL","FILES","SETTINGS","DEVICE MANAGER"};
+static uint32_t ww[4]={650,620,620,620},wh[4]={430,410,430,400};
+
+static uint32_t C(uint8_t r,uint8_t g,uint8_t b){return((uint32_t)r<<16)|((uint32_t)g<<8)|b;}
+static void p(int x,int y,uint32_t c){if(!fb.ready||x<0||y<0||(uint32_t)x>=fb.width||(uint32_t)y>=fb.height)return;*(volatile uint32_t*)(fb.addr+y*fb.pitch+x*4)=c;}
+static void box(int x,int y,int w,int h,uint32_t c){for(int j=0;j<h;j++)for(int i=0;i<w;i++)p(x+i,y+j,c);}
+static void rr(int x,int y,int w,int h,int r,uint32_t c){box(x+r,y,w-2*r,h,c);box(x,y+r,r,h-2*r,c);box(x+w-r,y+r,r,h-2*r,c);for(int j=-r;j<=r;j++)for(int i=-r;i<=r;i++)if(i*i+j*j<=r*r){p(x+r+i,y+r+j,c);p(x+w-r+i,y+r+j,c);p(x+r+i,y+h-r+j,c);p(x+w-r+i,y+h-r+j,c);}}
+static const uint8_t F[42][7]={
+{14,17,17,31,17,17,17},{30,17,17,30,17,17,30},{15,16,16,16,16,16,15},{30,17,17,17,17,17,30},{31,16,16,30,16,16,31},{31,16,16,30,16,16,16},{15,16,16,23,17,17,15},{17,17,17,31,17,17,17},{31,4,4,4,4,4,31},{7,2,2,2,2,18,12},{17,18,20,24,20,18,17},{16,16,16,16,16,16,31},{17,27,21,21,17,17,17},{17,25,21,19,17,17,17},{14,17,17,17,17,17,14},{30,17,17,30,16,16,16},{14,17,17,17,21,18,13},{30,17,17,30,20,18,17},{15,16,16,14,1,1,30},{31,4,4,4,4,4,4},{17,17,17,17,17,17,14},{17,17,17,17,17,10,4},{17,17,17,21,21,27,17},{17,17,10,4,10,17,17},{17,17,10,4,4,4,4},{31,1,2,4,8,16,31},
+{14,17,19,21,25,17,14},{4,12,4,4,4,4,14},{14,17,1,2,4,8,31},{30,1,1,14,1,1,30},{2,6,10,18,31,2,2},{31,16,16,30,1,1,30},{14,16,16,30,17,17,14},{31,1,2,4,8,8,8},{14,17,17,14,17,17,14},{14,17,17,15,1,1,14},{0,0,0,0,0,6,6},{0,6,6,0,6,6,0},{0,0,0,31,0,0,0},{1,2,2,4,8,8,16},{0,0,0,0,0,0,31},{4,4,4,4,4,0,4},{0,0,0,0,0,0,0}};
+static int gi(char c){if(c>='a'&&c<='z')c-=32;if(c>='A'&&c<='Z')return c-'A';if(c>='0'&&c<='9')return 26+c-'0';if(c=='.')return 36;if(c==':')return 37;if(c=='-')return 38;if(c=='/')return 39;if(c=='_')return 40;if(c=='!')return 41;return 42;}
+static void txt(int x,int y,const char*s,uint32_t c,int z){while(*s){int g=gi(*s++);for(int j=0;j<7;j++)for(int i=0;i<5;i++)if(F[g][j]&(1<<(4-i)))box(x+i*z,y+j*z,z,z,c);x+=6*z;}}
+static int hit(int x,int y,int w,int h){return mx>=x&&my>=y&&mx<x+w&&my<y+h;}
+static void icon(int x,int y,int n){rr(x,y,34,34,9,C(232,232,238));txt(x+9,y+9,n==0?"T":n==1?"F":n==2?"S":"D",C(38,39,45),2);}
+static void wallpaper(void){for(int y=0;y<(int)fb.height;y+=4){uint8_t r=18+18*y/fb.height,g=24+22*y/fb.height,b=38+38*y/fb.height;box(0,y,fb.width,4,C(r,g,b));}rr(60,80,430,235,32,C(30,43,70));rr(630,95,300,170,30,C(28,39,62));txt(88,112,"NEOOS",C(245,246,250),4);txt(88,158,"26.4",C(160,190,255),3);txt(88,210,"THE DESKTOP FOR EVERYONE",C(210,220,235),1);}
+static void win(int n){int x=wx[n],y=wy[n],w=ww[n],h=wh[n];rr(x+7,y+9,w,h,14,C(5,5,8));rr(x,y,w,h,14,C(248,248,250));box(x,y,w,48,C(239,239,243));rr(x+12,y+16,12,12,6,C(255,95,86));rr(x+32,y+16,12,12,6,C(255,189,46));rr(x+52,y+16,12,12,6,C(39,201,63));txt(x+84,y+16,title[n],C(48,48,55),2);int cy=y+78;if(n==0){txt(x+28,cy,"NEOOS TERMINAL",C(42,42,48),2);txt(x+28,cy+42,"NEOOS 26.4",C(90,90,100),2);txt(x+28,cy+82,"READY",C(42,42,48),2);txt(x+28,cy+122,"TYPE COMMANDS HERE",C(105,105,115),1);}else if(n==1){txt(x+28,cy,"HOME",C(42,42,48),2);txt(x+28,cy+48,"DOCUMENTS",C(80,80,88),2);txt(x+28,cy+88,"DOWNLOADS",C(80,80,88),2);txt(x+28,cy+128,"APPLICATIONS",C(80,80,88),2);}else if(n==2){txt(x+28,cy,"GENERAL",C(42,42,48),2);txt(x+28,cy+48,"APPEARANCE",C(80,80,88),2);txt(x+28,cy+88,"NETWORK",C(80,80,88),2);txt(x+28,cy+128,"SOUND",C(80,80,88),2);txt(x+28,cy+168,"PRIVACY",C(80,80,88),2);}else{txt(x+28,cy,"SYSTEM",C(42,42,48),2);txt(x+28,cy+48,"PROCESSOR",C(80,80,88),2);txt(x+28,cy+88,"DISPLAY",C(80,80,88),2);txt(x+28,cy+128,"MEMORY",C(80,80,88),2);}}
+static void bar(void){int y=fb.height-68;box(0,y,fb.width,68,C(245,245,247));box(0,y,fb.width,1,C(210,210,215));rr(18,y+13,44,42,12,C(25,28,35));txt(31,y+25,"N",C(245,245,250),2);for(int i=0;i<4;i++)icon(78+i*54,y+17,i);txt(fb.width-185,y+18,"WIFI",C(80,80,88),1);txt(fb.width-185,y+36,"SOUND",C(80,80,88),1);char t[6];rtc_time(t);txt(fb.width-72,y+17,t,C(38,38,44),2);txt(fb.width-72,y+39,"ONLINE",C(100,100,108),1);}
+static void menu(void){if(!start)return;int w=380,h=500,x=24,y=fb.height-68-h-18;rr(x+7,y+9,w,h,20,C(5,5,8));rr(x,y,w,h,20,C(248,248,250));txt(x+30,y+28,"NEOOS",C(38,38,45),3);rr(x+22,y+82,w-44,44,12,C(235,235,240));txt(x+40,y+97,"SEARCH APPLICATIONS",C(120,120,130),1);txt(x+30,y+158,"APPLICATIONS",C(45,45,52),2);const char*n[4]={"TERMINAL","FILES","SETTINGS","DEVICE MANAGER"};for(int i=0;i<4;i++){icon(x+30,y+192+i*58,i);txt(x+80,y+204+i*58,n[i],C(55,55,62),1);}}
+static void cur(void){for(int j=0;j<16;j++)for(int i=0;i<=j/2;i++)p(mx+i,my+j,C(255,255,255));for(int j=0;j<12;j++)p(mx+j/2,my+j,C(20,20,24));}
+void desktop_set_framebuffer(uint32_t a,uint32_t pitch,uint32_t w,uint32_t h,uint8_t b,uint8_t type){fb.addr=(volatile uint8_t*)(uintptr_t)a;fb.pitch=pitch;fb.width=w;fb.height=h;fb.bpp=b;fb.type=type;fb.ready=b==32&&type==1&&w>=800&&h>=600;mx=w/2;my=h/2;}
+int desktop_is_ready(void){return fb.ready;}
+void desktop_init(void){openw[0]=1;active=0;}
+void desktop_mouse_event(int x,int y,int buttons){mx+=x;my-=y;if(mx<2)mx=2;if(my<34)my=34;if(mx>(int)fb.width-3)mx=fb.width-3;if(my>(int)fb.height-3)my=fb.height-3;if((buttons&1)&&!prev){int y0=fb.height-68;if(hit(18,y0+13,44,42))start=!start;else{for(int i=0;i<4;i++)if(hit(78+i*54,y0+17,38,38)){openw[i]=1;active=i;start=0;}for(int i=0;i<4;i++)if(openw[i]){int x0=wx[i],yy=wy[i];if(hit(x0+ww[i]-72,yy,72,48))openw[i]=0;else if(hit(x0,yy,ww[i],48)){active=i;drag=i;dx0=mx-x0;dy0=my-yy;}}}}if(!(buttons&1))drag=-1;if(drag>=0&&(buttons&1)){wx[drag]=mx-dx0;wy[drag]=my-dy0;if(wx[drag]<8)wx[drag]=8;if(wy[drag]<36)wy[drag]=36;}prev=buttons&1;}
+void desktop_render(void){if(!fb.ready)return;wallpaper();for(int i=0;i<4;i++)if(openw[i]&&i!=active)win(i);if(openw[active])win(active);bar();menu();cur();}

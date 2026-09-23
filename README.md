@@ -1,11 +1,16 @@
-# NeoOS 26
+# NeoOS 26.4
 
-NeoOS is an open-source x86-64 operating system project.
+NeoOS is a standalone x86 operating system.
 
-## v0.3
+26 is the OS year family. The decimal value is the release version: 26.3 was the previous foundation build and 26.4 is the first graphical desktop build.
 
-The first NeoOS 26 desktop foundation release. It introduces the desktop subsystem and initial system applications on top of the kernel foundation.
+NeoOS 26.4 introduces a native 32-bit framebuffer desktop, mouse input, windows, a dock/taskbar, launcher, live RTC clock, and initial system applications.
 
-Included: bootable kernel, VGA console, interrupts, keyboard input, desktop subsystem, Terminal, Explorer, Settings, Device Manager, and NeoOS 26 branding.
+The UI uses a custom clean sans-serif bitmap renderer with proportions inspired by modern Apple desktop interfaces. Apple's San Francisco font is proprietary, so this repository does not redistribute it. A licensed font asset can be integrated later.
 
-Build with GCC, NASM, GRUB tools, Xorriso and QEMU using the included Makefile.
+Build with GCC multilib, NASM, GRUB, xorriso and QEMU:
+
+make
+make run
+
+WSL/Windows are development tools only. The resulting ISO is the standalone NeoOS system.
