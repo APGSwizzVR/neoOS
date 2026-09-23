@@ -1,11 +1,8 @@
 #include <stdint.h>
-#include "console.h"
-#include "keyboard.h"
 #include "interrupts.h"
+#include "keyboard.h"
+#include "mouse.h"
 #include "../desktop/desktop.h"
-#include "../apps/terminal/terminal.h"
-#include "../apps/settings/settings.h"
-#include "../apps/explorer/explorer.h"
-#include "../apps/device_manager/device_manager.h"
-static void halt(void){for(;;)__asm__ volatile("cli;hlt");}
-void kmain(uint32_t magic,uint32_t info){(void)info;console_clear();console_write("========================================\n              NeoOS 26\n                v0.3\n========================================\n\n");if(magic!=0x2BADB002){console_write("BOOT ERROR: invalid Multiboot magic.\n");halt();}console_write("Kernel:             ONLINE\nArchitecture:       x86-64 target\nInterrupts:         INITIALIZING...\n");interrupts_init();console_write("Interrupts:         ONLINE\n");keyboard_init();console_write("Keyboard:           ONLINE\nDesktop:            INITIALIZING...\n");desktop_init();console_write("Desktop:            ONLINE\n");terminal_app_open();settings_app_open();explorer_app_open();device_manager_open();console_write("\nNeoOS 26 v0.3 is running.\nneoos> ");halt();}
+#define MULTIBOOT_MAGIC 0x2BADB002u
+typedef struct{uint32_t flags,mem_lower,mem_upper,boot_device,cmdline,mods_count,mods_addr,syms[4],mmap_length,mmap_addr,drives_length,drives_addr,config_table,boot_loader_name,apm_table,vbe_control_info,vbe_mode_info;uint16_t vbe_mode,vbe_interface_seg;uint16_t vbe_interface_off,vbe_interface_len;uint64_t framebuffer_addr;uint32_t framebuffer_pitch,framebuffer_width,framebuffer_height;uint8_t framebuffer_bpp,framebuffer_type;}__attribute__((packed)) multiboot_info_t;
+void kmain(uint32_t magic,uint32_t info_addr){if(magic!=MULTIBOOT_MAGIC)for(;;)__asm__ volatile("cli;hlt");multiboot_info_t*mb=(multiboot_info_t*)(uintptr_t)info_addr;if(!(mb->flags&(1u<<12)))for(;;)__asm__ volatile("cli;hlt");desktop_set_framebuffer((uint32_t)mb->framebuffer_addr,mb->framebuffer_pitch,mb->framebuffer_width,mb->framebuffer_height,mb->framebuffer_bpp,mb->framebuffer_type);if(!desktop_is_ready())for(;;)__asm__ volatile("cli;hlt");interrupts_init();keyboard_init();mouse_init();desktop_init();interrupts_enable();for(;;){desktop_render();__asm__ volatile("hlt");}}
